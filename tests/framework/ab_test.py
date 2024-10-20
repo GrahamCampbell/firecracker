@@ -30,10 +30,8 @@ from typing import Callable, List, Optional, TypeVar
 import scipy
 
 from framework import utils
-from framework.microvm import Microvm
 from framework.utils import CommandReturn
 from framework.with_filelock import with_filelock
-from host_tools.cargo_build import get_binary, get_firecracker_binaries
 
 # Locally, this will always compare against main, even if we try to merge into, say, a feature branch.
 # We might want to do a more sophisticated way to determine a "parent" branch here.
@@ -151,55 +149,6 @@ def set_did_not_grow_comparator(
     return lambda output_a, output_b: set_generator(output_b).issubset(
         set_generator(output_a)
     )
-
-
-def git_ab_test_guest_command(
-    microvm_factory: Callable[[Path, Path], Microvm],
-    command: str,
-    *,
-    comparator: Callable[[CommandReturn, CommandReturn], bool] = default_comparator,
-    a_revision: str = DEFAULT_A_REVISION,
-    b_revision: Optional[str] = None,
-):
-    """The same as git_ab_test_command, but via SSH. The closure argument should setup a microvm using the passed
-    paths to firecracker and jailer binaries."""
-
-    @with_filelock
-    def build_firecracker(workspace_dir):
-        utils.check_output("./tools/release.sh --profile release", cwd=workspace_dir)
-
-    def test_runner(workspace_dir, _is_a: bool):
-        firecracker = get_binary("firecracker", workspace_dir=workspace_dir)
-        if not firecracker.exists():
-            build_firecracker(workspace_dir)
-        bin_dir = firecracker.parent.resolve()
-        firecracker, jailer = bin_dir / "firecracker", bin_dir / "jailer"
-        microvm = microvm_factory(firecracker, jailer)
-        return microvm.ssh.run(command)
-
-    (_, old_out, old_err), (_, new_out, new_err), the_same = git_ab_test(
-        test_runner, comparator, a_revision=a_revision, b_revision=b_revision
-    )
-
-    assert (
-        the_same
-    ), f"The output of running command `{command}` changed:\nOld:\nstdout:\n{old_out}\nstderr\n{old_err}\n\nNew:\nstdout:\n{new_out}\nstderr:\n{new_err}"
-
-
-def git_ab_test_guest_command_if_pr(
-    microvm_factory: Callable[[Path, Path], Microvm],
-    command: str,
-    *,
-    comparator=default_comparator,
-    check_in_nonpr=True,
-):
-    """The same as git_ab_test_command_if_pr, but via SSH"""
-    if is_pr():
-        git_ab_test_guest_command(microvm_factory, command, comparator=comparator)
-        return None
-
-    microvm = microvm_factory(*get_firecracker_binaries())
-    return microvm.ssh.run(command, check=check_in_nonpr)
 
 
 def check_regression(

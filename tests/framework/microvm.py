@@ -773,6 +773,22 @@ class Microvm:
         if enable_entropy_device:
             self.enable_entropy_device()
 
+    def set_cpu_template(self, cpu_template):
+        """Add a block device."""
+        # pylint:disable=attribute-defined-outside-init
+        self.cpu_template = cpu_template
+        self.cpu_template_name = None
+        # static CPU template
+        if cpu_template is None:
+            return
+        if isinstance(cpu_template, str):
+            self.api.machine_config.patch(cpu_template=cpu_template)
+            self.cpu_template_name = cpu_template
+        # custom CPU template
+        elif isinstance(cpu_template, dict):
+            self.api.cpu_config.put(**cpu_template["template"])
+            self.cpu_template_name = cpu_template["name"]
+
     def add_drive(
         self,
         drive_id,

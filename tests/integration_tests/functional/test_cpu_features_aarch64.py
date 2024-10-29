@@ -2,137 +2,78 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for the CPU features for aarch64."""
 
-import platform
-import re
-
 import pytest
 
-import framework.utils_cpuid as cpuid_utils
+from framework import utils
+from framework.properties import global_props
 from framework.utils_cpuid import CpuModel
 
-PLATFORM = platform.machine()
+pytestmark = pytest.mark.skipif(
+    global_props.cpu_architecture != "aarch64", reason="Only run in aarch64"
+)
 
-DEFAULT_G2_FEATURES = set(
+G2_FEATS = set(
     (
         "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
         "asimdhp cpuid asimdrdm lrcpc dcpop asimddp ssbs"
     ).split(" ")
 )
 
-DEFAULT_G3_FEATURES_5_10 = DEFAULT_G2_FEATURES | set(
+G3_FEATS = G2_FEATS | set(
     "sha512 asimdfhm dit uscat ilrcpc flagm jscvt fcma sha3 sm3 sm4 rng dcpodp i8mm bf16 dgh".split(
         " "
     )
 )
 
-DEFAULT_G3_FEATURES_WITH_SVE_AND_PAC_5_10 = DEFAULT_G3_FEATURES_5_10 | set(
-    "paca pacg sve svebf16 svei8mm".split(" ")
-)
+G3_SVE_AND_PAC = set("paca pacg sve svebf16 svei8mm".split(" "))
 
-DEFAULT_G3_FEATURES_V1N1 = DEFAULT_G2_FEATURES
+GET_CPU_FLAGS_CMD = r"lscpu |grep -oP '^Flags:\s+\K.+'"
 
 
-def _check_cpu_features_arm(test_microvm, guest_kv, template_name=None):
-    expected_cpu_features = {"Flags": []}
-    match cpuid_utils.get_cpu_model_name(), guest_kv, template_name:
-        case CpuModel.ARM_NEOVERSE_N1, _, "v1n1":
-            expected_cpu_features = DEFAULT_G2_FEATURES
-        case CpuModel.ARM_NEOVERSE_N1, _, None:
-            expected_cpu_features = DEFAULT_G2_FEATURES
+def parse_cpu_flags(stdout):
+    """Parse CPU flags from `lscpu`"""
+    return set(stdout.strip().split(" "))
+
+
+def test_guest_cpu_features(uvm_any):
+    """Check the CPU features for a microvm with different CPU templates"""
+
+    vm = uvm_any
+    expected_cpu_features = set()
+    match global_props.cpu_model, vm.cpu_template_name:
+        case CpuModel.ARM_NEOVERSE_N1, "v1n1":
+            expected_cpu_features = G2_FEATS
+        case CpuModel.ARM_NEOVERSE_N1, None:
+            expected_cpu_features = G2_FEATS
 
         # [cm]7g with guest kernel 5.10 and later
-        case CpuModel.ARM_NEOVERSE_V1, _, "v1n1":
-            expected_cpu_features = DEFAULT_G3_FEATURES_V1N1
-        case CpuModel.ARM_NEOVERSE_V1, _, "aarch64_with_sve_and_pac":
-            expected_cpu_features = DEFAULT_G3_FEATURES_WITH_SVE_AND_PAC_5_10
-        case CpuModel.ARM_NEOVERSE_V1, _, None:
-            expected_cpu_features = DEFAULT_G3_FEATURES_5_10
+        case CpuModel.ARM_NEOVERSE_V1, "v1n1":
+            expected_cpu_features = G2_FEATS
+        case CpuModel.ARM_NEOVERSE_V1, "aarch64_with_sve_and_pac":
+            expected_cpu_features = G3_FEATS | G3_SVE_AND_PAC
+        case CpuModel.ARM_NEOVERSE_V1, None:
+            expected_cpu_features = G3_FEATS
 
-    _, stdout, _ = test_microvm.ssh.check_output(r"lscpu |grep -oP '^Flags:\s+\K.+'")
-    flags = set(stdout.strip().split(" "))
-    assert flags == expected_cpu_features
-
-
-def get_cpu_template_dir(cpu_template):
-    """
-    Utility function to return a valid string which will be used as
-    name of the directory where snapshot artifacts are stored during
-    snapshot test and loaded from during restore test.
-
-    """
-    return cpu_template if cpu_template else "none"
+    guest_feats = parse_cpu_flags(vm.ssh.check_output(GET_CPU_FLAGS_CMD).stdout)
+    assert guest_feats == expected_cpu_features
 
 
-@pytest.mark.skipif(
-    PLATFORM != "aarch64",
-    reason="This is aarch64 specific test.",
-)
-def test_default_cpu_features(microvm_factory, guest_kernel, rootfs_ubuntu_22):
-    """
-    Check the CPU features for a microvm with the specified config.
-    """
+def test_host_vs_guest_cpu_features(uvm_nano):
+    """Check CPU features host vs guest"""
 
-    vm = microvm_factory.build(guest_kernel, rootfs_ubuntu_22, monitor_memory=False)
-    vm.spawn()
-    vm.basic_config()
+    vm = uvm_nano
     vm.add_net_iface()
     vm.start()
-    guest_kv = re.search(r"vmlinux-(\d+\.\d+)", guest_kernel.name).group(1)
-    _check_cpu_features_arm(vm, guest_kv)
+    host_feats = parse_cpu_flags(utils.check_output(GET_CPU_FLAGS_CMD).stdout)
+    guest_feats = parse_cpu_flags(vm.ssh.check_output(GET_CPU_FLAGS_CMD).stdout)
 
-
-@pytest.mark.skipif(
-    PLATFORM != "aarch64",
-    reason="This is aarch64 specific test.",
-)
-def test_cpu_features_with_static_template(
-    microvm_factory, guest_kernel, rootfs_ubuntu_22, cpu_template
-):
-    """
-    Check the CPU features for a microvm with the specified config.
-    """
-
-    vm = microvm_factory.build(guest_kernel, rootfs_ubuntu_22, monitor_memory=False)
-    vm.spawn()
-    vm.basic_config(cpu_template=cpu_template)
-    vm.add_net_iface()
-    vm.start()
-    guest_kv = re.search(r"vmlinux-(\d+\.\d+)", guest_kernel.name).group(1)
-    _check_cpu_features_arm(vm, guest_kv, "v1n1")
-
-    # Check that cpu features are still correct
-    # after snap/restore cycle.
-    snapshot = vm.snapshot_full()
-    restored_vm = microvm_factory.build()
-    restored_vm.spawn()
-    restored_vm.restore_from_snapshot(snapshot, resume=True)
-    _check_cpu_features_arm(restored_vm, guest_kv, "v1n1")
-
-
-@pytest.mark.skipif(
-    PLATFORM != "aarch64",
-    reason="This is aarch64 specific test.",
-)
-def test_cpu_features_with_custom_template(
-    microvm_factory, guest_kernel, rootfs_ubuntu_22, custom_cpu_template
-):
-    """
-    Check the CPU features for a microvm with the specified config.
-    """
-
-    vm = microvm_factory.build(guest_kernel, rootfs_ubuntu_22, monitor_memory=False)
-    vm.spawn()
-    vm.basic_config()
-    vm.api.cpu_config.put(**custom_cpu_template["template"])
-    vm.add_net_iface()
-    vm.start()
-    guest_kv = re.search(r"vmlinux-(\d+\.\d+)", guest_kernel.name).group(1)
-    _check_cpu_features_arm(vm, guest_kv, custom_cpu_template["name"])
-
-    # Check that cpu features are still correct
-    # after snap/restore cycle.
-    snapshot = vm.snapshot_full()
-    restored_vm = microvm_factory.build()
-    restored_vm.spawn()
-    restored_vm.restore_from_snapshot(snapshot, resume=True)
-    _check_cpu_features_arm(restored_vm, guest_kv, custom_cpu_template["name"])
+    if global_props.cpu_model == CpuModel.ARM_NEOVERSE_N1:
+        assert host_feats - guest_feats == set()
+        assert guest_feats - host_feats == {"ssbs"}
+    elif global_props.cpu_model == CpuModel.ARM_NEOVERSE_V1:
+        assert host_feats - guest_feats == G3_SVE_AND_PAC
+        assert guest_feats - host_feats == {"ssbs"}
+    else:
+        # Fail the test. Pytest should print the local variables, from where we
+        # can copy the CPU features
+        assert False, f"Please onboard new CpuModel {global_props.cpu_model}"

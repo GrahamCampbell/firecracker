@@ -783,11 +783,11 @@ class Microvm:
             return
         if isinstance(cpu_template, str):
             self.api.machine_config.patch(cpu_template=cpu_template)
-            self.cpu_template_name = cpu_template
+            self.cpu_template_name = cpu_template.lower()
         # custom CPU template
         elif isinstance(cpu_template, dict):
             self.api.cpu_config.put(**cpu_template["template"])
-            self.cpu_template_name = cpu_template["name"]
+            self.cpu_template_name = cpu_template["name"].lower()
 
     def add_drive(
         self,

@@ -498,3 +498,9 @@ def uvm_fun(request):
 def uvm_any(microvm_factory, uvm_fun, guest_kernel, rootfs_ubuntu_22, cpu_template_any):
     """Return uvm with revision B firecracker"""
     return uvm_fun(microvm_factory, guest_kernel, rootfs_ubuntu_22, cpu_template_any)
+
+
+@pytest.fixture
+def uvm_any_booted(microvm_factory, guest_kernel, rootfs_ubuntu_22, cpu_template_any):
+    """Return uvm with revision B firecracker"""
+    return uvm_booted(microvm_factory, guest_kernel, rootfs_ubuntu_22, cpu_template_any)

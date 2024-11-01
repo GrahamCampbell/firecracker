@@ -69,7 +69,7 @@ class SpectreMeltdownChecker:
         assert res.returncode == 0
         return self._parse_output(res.stdout)
 
-    def expected_vulnerabilities(self):
+    def expected_vulnerabilities(self, cpu_template):
         """
         There is a REPTAR exception reported on INTEL_ICELAKE when spectre-meltdown-checker.sh
         script is run inside the guest from below the tests:
@@ -87,7 +87,7 @@ class SpectreMeltdownChecker:
         Since we have a test on host and the exception in guest is not valid,
         we add a check to ignore this exception.
         """
-        if global_props.cpu_codename == "INTEL_ICELAKE":
+        if global_props.cpu_codename == "INTEL_ICELAKE" and cpu_template is None:
             return {
                 '{"NAME": "REPTAR", "CVE": "CVE-2023-23583", "VULNERABLE": true, "INFOS": "Your microcode is too old to mitigate the vulnerability"}'
             }
@@ -255,4 +255,6 @@ def test_spectre_meltdown_checker_on_guest(
         res_a = spectre_meltdown_checker.get_report_for_guest(uvm_a)
         assert res_a == res_b
     else:
-        assert res_b == spectre_meltdown_checker.expected_vulnerabilities()
+        assert res_b == spectre_meltdown_checker.expected_vulnerabilities(
+            uvm_any.cpu_template
+        )

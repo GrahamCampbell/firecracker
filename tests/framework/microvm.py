@@ -593,6 +593,9 @@ class Microvm:
             if log_show_origin:
                 self.jailer.extra_args["show-log-origin"] = None
 
+        # Always run without seccomp
+        self.jailer.extra_args.update({"no-seccomp": None})
+
         if metrics_path is not None:
             self.metrics_file = Path(self.path) / metrics_path
             self.metrics_file.touch()
